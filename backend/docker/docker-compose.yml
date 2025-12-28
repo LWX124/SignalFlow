@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: signalflow-postgres
+    environment:
+      POSTGRES_USER: signalflow
+      POSTGRES_PASSWORD: signalflow
+      POSTGRES_DB: signalflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signalflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: signalflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API Server
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: signalflow-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://signalflow:signalflow@postgres:5432/signalflow
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://redis:6379/3
+      - APP_ENV=development
+      - DEBUG=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: signalflow-worker
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://signalflow:signalflow@postgres:5432/signalflow
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://redis:6379/3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A src.workers.celery_app worker --loglevel=info
+
+  # Celery Beat (Scheduler)
+  beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: signalflow-beat
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://signalflow:signalflow@postgres:5432/signalflow
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://redis:6379/3
+    depends_on:
+      - worker
+    command: celery -A src.workers.celery_app beat --loglevel=info
+
+volumes:
+  postgres_data:
+  redis_data:
