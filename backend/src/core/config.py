@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4-turbo-preview"
 
+    # LLM Providers
+    # 阿里百炼 (DashScope)
+    alibaba_api_key: str = ""
+    # DeepSeek
+    deepseek_api_key: str = ""
+    # Kie (Image Generation)
+    kie_api_key: str = ""
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"
